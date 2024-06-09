@@ -20,7 +20,7 @@ pub trait IERC20<TContractState> {
 }
 
 #[starknet::contract]
-mod erc_20 {
+pub mod erc_20 {
     use starknet::{ContractAddress, contract_address_const, get_caller_address};
 
     #[storage]
@@ -36,17 +36,17 @@ mod erc_20 {
 
     #[event]
     #[derive(Drop, starknet::Event)]
-    enum Event {
+    pub enum Event {
         Transfer: Transfer,
         Approval: Approval,
     }
 
     #[derive(Drop, starknet::Event)]
-    struct Transfer {
+    pub struct Transfer {
         #[key]
-        from: ContractAddress,
-        to: ContractAddress,
-        value: u256,
+        pub from: ContractAddress,
+        pub to: ContractAddress,
+        pub value: u256,
     }
 
     #[derive(Drop, starknet::Event)]

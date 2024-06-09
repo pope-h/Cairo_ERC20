@@ -1,12 +1,13 @@
 use starknet::{ContractAddress, contract_address_const};
 
 use snforge_std::{declare, ContractClassTrait, cheat_caller_address, start_cheat_caller_address,
-    stop_cheat_caller_address, CheatSpan, spy_events, SpyOn, EventSpy, EventAssertions}; // Added extra for reference
+    stop_cheat_caller_address, CheatSpan, spy_events, SpyOn, EventSpy, EventAssertions};
 
 use erc20contract::erc20::IERC20SafeDispatcher;
 use erc20contract::erc20::IERC20SafeDispatcherTrait;
 use erc20contract::erc20::IERC20Dispatcher;
 use erc20contract::erc20::IERC20DispatcherTrait;
+use erc20contract::erc20::erc_20;
 
 fn deploy_contract(name: ByteArray) -> ContractAddress {
     let contract = declare(name).unwrap();
@@ -263,4 +264,33 @@ fn test_transfer_ownership_not_owner() {
     let dispatcher = IERC20Dispatcher { contract_address };
 
     dispatcher.transfer_ownership(new_owner);
+}
+
+#[test]
+fn test_event_emitted() {
+    let contract_address = deploy_contract("erc_20");
+
+    let user: ContractAddress = contract_address_const::<'user'>();
+    let recipient: ContractAddress = contract_address_const::<'recipient'>().into();
+    let dispatcher = IERC20Dispatcher { contract_address };
+
+    let mut spy = spy_events(SpyOn::One(contract_address));
+
+    start_cheat_caller_address(contract_address, recipient);
+    dispatcher.transfer(user, 400000);
+
+    spy
+        .assert_emitted(
+            @array![
+                (contract_address, erc_20::Event::Transfer(
+                    erc_20::Transfer {
+                        from: recipient,
+                        to: user,
+                        value: 400000,
+                    }
+                )),
+            ]
+        );
+
+    // let events = spy.stop();
 }
