@@ -1,7 +1,7 @@
 use starknet::ContractAddress;
 
 #[starknet::interface]
-trait IERC20<TContractState> {
+pub trait IERC20<TContractState> {
     fn get_name(self: @TContractState) -> felt252;
     fn get_symbol(self: @TContractState) -> felt252;
     fn get_decimals(self: @TContractState) -> u8;
@@ -58,20 +58,20 @@ mod erc_20 {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, owner: ContractAddress, recipient: ContractAddress, name: felt252, decimals: u8, initial_supply: u256, symbol: felt252) {
+    fn constructor(ref self: ContractState, owner: ContractAddress, recipient: ContractAddress, name: felt252, decimals: u8, initial_supply: felt252, symbol: felt252) {
         self.name.write(name);
         self.symbol.write(symbol);
         self.decimals.write(decimals);
         self.owner.write(owner);
-        let addressZero : ContractAddress = contract_address_const::<0>();
 
-        assert(recipient != addressZero, 'Zero address not allowed');
-        self.total_supply.write(initial_supply);
-        self.balances.write(recipient, initial_supply);
+        assert(recipient != self.address_zero(), 'Zero address');
+        let _initial_supply: u256 = initial_supply.try_into().unwrap();
+        self.total_supply.write(_initial_supply);
+        self.balances.write(recipient, _initial_supply);
         self.emit(Transfer {
-            from: addressZero,
+            from: self.address_zero(),
             to: recipient,
-            value: initial_supply,
+            value: _initial_supply,
         });
     }
 
@@ -108,11 +108,10 @@ mod erc_20 {
         fn transfer(ref self: ContractState, recipient: ContractAddress, amount: u256) {
             let sender = get_caller_address();
             let sender_balance = self.balances.read(sender);
-            let addressZero : ContractAddress = contract_address_const::<0>();
 
-            assert(sender_balance >= amount, 'balance is not enough');
-            assert(sender != addressZero, 'zero account not allowed');
-            assert(recipient != addressZero, 'zero account not allowed');
+            assert(sender_balance >= amount, 'Insufficient balance');
+            assert(sender != self.address_zero(), 'zero address');
+            assert(recipient != self.address_zero(), 'zero address');
             self.balances.write(sender, (self.balances.read(sender) - amount));
             self.balances.write(recipient, (self.balances.read(recipient) + amount));
             self.emit(Transfer { from: sender, to: recipient, value: amount });
@@ -121,21 +120,19 @@ mod erc_20 {
         fn transfer_from(ref self: ContractState, owner: ContractAddress, recipient: ContractAddress, amount: u256) {
             let caller = get_caller_address();
             let current_allowance = self.allowances.read((owner, caller));
-            let addressZero : ContractAddress = contract_address_const::<0>();
 
             assert(current_allowance >= amount, 'Insufficient allowance');
-            assert(owner != addressZero, 'zero account not allowed');
-            assert(recipient != addressZero, 'zero account not allowed');
+            assert(owner != self.address_zero(), 'zero address');
+            assert(recipient != self.address_zero(), 'zero address');
             self.balances.write(owner, (self.balances.read(owner) - amount));
-            self.balances.write(recipient, (self.balances.read(recipient) - amount));
+            self.balances.write(recipient, (self.balances.read(recipient) + amount));
             self.emit(Transfer { from: owner, to: recipient, value: amount });
         }
 
         fn approve(ref self: ContractState, spender: ContractAddress, amount: u256) {
             let owner = get_caller_address();
-            let addressZero : ContractAddress = contract_address_const::<0>();
 
-            assert(spender != addressZero, 'zero address not allowed');
+            assert(spender != self.address_zero(), 'zero address');
             self.allowances.write((owner, spender), amount);
             self.emit(Approval { owner, spender, value: amount });
         }
@@ -150,41 +147,50 @@ mod erc_20 {
         fn decrease_allowance(ref self: ContractState, spender: ContractAddress, subtracted_value: u256) {
             let owner = get_caller_address();
             let current_allowance = self.allowances.read((owner, spender));
-            assert(current_allowance >= subtracted_value, 'Decreased allowance below zero');
+            assert(current_allowance >= subtracted_value, 'Allowance underflow');
             self.allowances.write((owner, spender), current_allowance - subtracted_value);
             self.emit(Approval { owner, spender, value: current_allowance - subtracted_value });
         }
 
         fn mint(ref self: ContractState, account: ContractAddress, amount: u256) {
-            let caller = get_caller_address();
-            let addressZero : ContractAddress = contract_address_const::<0>();
+            self.only_owner();
+            assert(account != self.address_zero(), 'zero address');
 
-            assert(caller == self.owner.read(), 'Only owner can mint');
-            assert(account != addressZero, 'zero account not allowed');
             self.total_supply.write(self.total_supply.read() + amount);
             self.balances.write(account, self.balances.read(account) + amount);
-            self.emit(Transfer { from: addressZero, to: account, value: amount });
+            self.emit(Transfer { from: self.address_zero(), to: account, value: amount });
         }
 
         fn burn(ref self: ContractState, account: ContractAddress, amount: u256) {
-            let owner = get_caller_address();
-            let addressZero : ContractAddress = contract_address_const::<0>();
-
-            assert(owner == self.owner.read(), 'Only owner can burn');
-            assert(account != addressZero, 'zero account not allowed');
+            self.only_owner();
+            assert(account != self.address_zero(), 'zero address');
             assert(self.balances.read(account) >= amount, 'Insufficient balance');
+
             self.total_supply.write(self.total_supply.read() - amount);
             self.balances.write(account, self.balances.read(account) - amount);
-            self.emit(Transfer { from: account, to: addressZero, value: amount });
+            self.emit(Transfer { from: account, to: self.address_zero(), value: amount });
         }
 
         fn transfer_ownership(ref self: ContractState, new_owner: ContractAddress) {
-            let owner = get_caller_address();
-            let addressZero : ContractAddress = contract_address_const::<0>();
+            self.only_owner();
 
-            assert(owner == self.owner.read(), 'Only owner');
-            assert(new_owner != addressZero, 'zero account not allowed');
+            assert(new_owner != self.address_zero(), 'zero account not allowed');
             self.owner.write(new_owner);
+        }
+    }
+
+    #[generate_trait]
+    pub impl internalImpl of InternalTrait {
+        fn address_zero(ref self: ContractState) -> ContractAddress {
+            contract_address_const::<0>()
+        }
+
+        fn only_owner(ref self: ContractState) -> bool {
+            let caller = get_caller_address();
+            let owner = self.owner.read();
+
+            assert(caller == owner, 'Only owner'); // The next line should serve but i needed to return a message
+            caller == owner
         }
     }
 }
